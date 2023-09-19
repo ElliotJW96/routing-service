@@ -3,9 +3,9 @@ package com.routing;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
-import io.micronaut.http.MutableHttpResponse;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
+import io.micronaut.http.annotation.Post;
 import io.micronaut.http.client.HttpClient;
 import io.micronaut.http.client.annotation.Client;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
@@ -25,45 +25,53 @@ public class RoutingController {
 
     @Get("/customer")
     public HttpResponse routeToCustomerService(HttpRequest<?> request) {
-        validate(request);
-        System.out.println("Made it GET /customer method");
-        // Forward the validated request to the Customer Service
-        return forwardRequest("/customer", customerServiceClient);
+        validateJwt(request);
+        return forwardRequest(request, customerServiceClient, "/customer");
     }
 
-    private void validate(HttpRequest<?> request) {
+    private void validateJwt(HttpRequest<?> request) {
         String jwt = request.getHeaders().getAuthorization().orElse(null);
         if (jwt == null) {
-            String username = request.getHeaders().get("username");
-            String password = request.getHeaders().get("password");
-            if (username == null || password == null) {
-                throw new HttpStatusException(HttpStatus.valueOf(401), "Authentication details missing");
-            } else {
-                MutableHttpResponse<String> response = (MutableHttpResponse<String>) loginServiceClient.toBlocking()
-                        .exchange(HttpRequest.POST("/login", "")
-                                .header("username", username)
-                                .header("password", password), String.class);
-                if (response.getStatus() != HttpStatus.CREATED) {
-                    throw new HttpStatusException(HttpStatus.valueOf(401), "Invalid credentials");
-                }
+            throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "JWT missing");
+        }
+        try {
+            loginServiceClient.toBlocking()
+                    .exchange(HttpRequest.POST("/auth", "")
+                            .header("Authorization", jwt), String.class);
+        } catch (HttpClientResponseException e) {
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid JWT");
             }
-        } else {
-            MutableHttpResponse<String> response = (MutableHttpResponse<String>) loginServiceClient.toBlocking()
-                    .exchange(HttpRequest.GET("/auth")
-                            .header("Authorization", "Bearer " + jwt), String.class);
-            if (response.getStatus() != HttpStatus.CREATED) {
-                throw new HttpStatusException(HttpStatus.valueOf(401), "Invalid JWT");
-            }
+            throw new HttpStatusException(e.getStatus(), "Error during JWT validation");
         }
     }
 
-    private MutableHttpResponse<String> forwardRequest(String path, HttpClient client) {
-        System.out.println("Made it forwardRequest method");
-        HttpRequest<?> request = HttpRequest.GET(path);
+    @Post("/login")
+    public HttpResponse<String> login(HttpRequest<?> request) {
+        String username = request.getHeaders().get("username");
+        String password = request.getHeaders().get("password");
+
+        if (username == null || password == null) {
+            throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Authentication details missing");
+        }
+
         try {
-            MutableHttpResponse<String> response = (MutableHttpResponse<String>) client.toBlocking().exchange(request, String.class);
-            System.out.println("Response within forwardRequest method: " + response.toString());
-            return response;
+            return loginServiceClient.toBlocking()
+                    .exchange(HttpRequest.POST("/login", "")
+                            .header("username", username)
+                            .header("password", password), String.class);
+        } catch (HttpClientResponseException e) {
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+            }
+            throw new HttpStatusException(e.getStatus(), "Error during login");
+        }
+    }
+
+    private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
+        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), path);
+        try {
+            return client.toBlocking().exchange(request, String.class);
         } catch (HttpClientResponseException e) {
             throw new HttpStatusException(e.getStatus(), "Request forwarding failed");
         }
