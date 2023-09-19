@@ -23,52 +23,45 @@ public class RoutingController {
     @Client("http://host.docker.internal:8083")  // customer-service URL
     private HttpClient customerServiceClient;
 
-
     @Get("/customer")
-    public  HttpResponse routeToCustomerService() {
-        // String jwt = extractJwtFromRequest();
-        // validateJwt(jwt, request);
+    public HttpResponse routeToCustomerService(HttpRequest<?> request) {
+        validate(request);
         System.out.println("Made it GET /customer method");
         // Forward the validated request to the Customer Service
         return forwardRequest("/customer", customerServiceClient);
     }
 
-    // Add similar methods for other services
-
-    private String extractJwtFromRequest(HttpRequest<?> request) {
-        String authorizationHeader = request.getHeaders().getAuthorization().orElse(null);
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            return authorizationHeader.substring(7); // Extract the JWT token
-        } else {
-            throw new HttpStatusException(HttpStatus.valueOf(401), "JWT token not found in the request");
-        }
-    }
-
-    private void validateJwt(String jwt, HttpRequest<?> request) {
+    private void validate(HttpRequest<?> request) {
+        String jwt = request.getHeaders().getAuthorization().orElse(null);
         if (jwt == null) {
             String username = request.getHeaders().get("username");
             String password = request.getHeaders().get("password");
             if (username == null || password == null) {
                 throw new HttpStatusException(HttpStatus.valueOf(401), "Authentication details missing");
             } else {
-                // Logic to validate authentication details by calling the login-service
-                // You'll need to implement this based on your authentication service
-                // Example:
-                // loginServiceClient.authenticate(username, password);
+                MutableHttpResponse<String> response = (MutableHttpResponse<String>) loginServiceClient.toBlocking()
+                        .exchange(HttpRequest.POST("/login", "")
+                                .header("username", username)
+                                .header("password", password), String.class);
+                if (response.getStatus() != HttpStatus.CREATED) {
+                    throw new HttpStatusException(HttpStatus.valueOf(401), "Invalid credentials");
+                }
             }
         } else {
-            // Logic to validate JWT by calling the login-service
-            // You'll need to implement this based on your authentication service
-            // Example:
-            // loginServiceClient.validateJwt(jwt);
+            MutableHttpResponse<String> response = (MutableHttpResponse<String>) loginServiceClient.toBlocking()
+                    .exchange(HttpRequest.GET("/auth")
+                            .header("Authorization", "Bearer " + jwt), String.class);
+            if (response.getStatus() != HttpStatus.CREATED) {
+                throw new HttpStatusException(HttpStatus.valueOf(401), "Invalid JWT");
+            }
         }
     }
 
-    private HttpResponse forwardRequest(String path, HttpClient client) {
+    private MutableHttpResponse<String> forwardRequest(String path, HttpClient client) {
         System.out.println("Made it forwardRequest method");
         HttpRequest<?> request = HttpRequest.GET(path);
         try {
-            HttpResponse response = client.toBlocking().exchange(request, String.class);
+            MutableHttpResponse<String> response = (MutableHttpResponse<String>) client.toBlocking().exchange(request, String.class);
             System.out.println("Response within forwardRequest method: " + response.toString());
             return response;
         } catch (HttpClientResponseException e) {
