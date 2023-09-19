@@ -12,9 +12,7 @@ import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.http.exceptions.HttpStatusException;
 import jakarta.inject.Inject;
 
-import java.io.IOException;
-
-@Controller("/routing")
+@Controller
 public class RoutingController {
 
     @Inject
@@ -27,13 +25,12 @@ public class RoutingController {
 
 
     @Get("/customer")
-    public MutableHttpResponse<Object> routeToCustomerService() {
-       // String jwt = extractJwtFromRequest();
-       // validateJwt(jwt, request);
+    public  HttpResponse routeToCustomerService() {
+        // String jwt = extractJwtFromRequest();
+        // validateJwt(jwt, request);
         System.out.println("Made it GET /customer method");
         // Forward the validated request to the Customer Service
-        return HttpResponse.ok();
-        //return forwardRequest("/customer", customerServiceClient);
+        return forwardRequest("/customer", customerServiceClient);
     }
 
     // Add similar methods for other services
@@ -69,7 +66,6 @@ public class RoutingController {
 
     private HttpResponse forwardRequest(String path, HttpClient client) {
         System.out.println("Made it forwardRequest method");
-
         HttpRequest<?> request = HttpRequest.GET(path);
         try {
             HttpResponse response = client.toBlocking().exchange(request, String.class);

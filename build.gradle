@@ -12,14 +12,10 @@ repositories {
 }
 
 dependencies {
-    annotationProcessor("io.micronaut.security:micronaut-security-annotations")
     annotationProcessor("io.micronaut.serde:micronaut-serde-processor")
-    implementation("io.micronaut:micronaut-http-client")
-    implementation("io.micronaut.security:micronaut-security-jwt")
     implementation("io.micronaut.serde:micronaut-serde-jackson")
     runtimeOnly("ch.qos.logback:logback-classic")
-    aotPlugins platform("io.micronaut.platform:micronaut-platform:4.1.1")
-    aotPlugins("io.micronaut.security:micronaut-security-aot")
+    testImplementation("io.micronaut:micronaut-http-client")
 }
 
 
@@ -30,6 +26,11 @@ java {
     sourceCompatibility = JavaVersion.toVersion("17")
     targetCompatibility = JavaVersion.toVersion("17")
 }
+
+dependencies{
+    implementation("io.micronaut:micronaut-http-client")
+}
+
 
 graalvmNative.toolchainDetection = false
 micronaut {
@@ -49,7 +50,6 @@ micronaut {
         optimizeClassLoading = true
         deduceEnvironment = true
         optimizeNetty = true
-        configurationProperties.put("micronaut.security.jwks.enabled","false")
     }
 }
 
