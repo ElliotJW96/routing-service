@@ -1,4 +1,4 @@
-package com.example;
+package com.routing;
 
 import io.micronaut.runtime.Micronaut;
 
