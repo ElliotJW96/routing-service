@@ -3,6 +3,7 @@ package com.routing;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
+import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
 import io.micronaut.http.annotation.Post;
@@ -47,19 +48,15 @@ public class RoutingController {
     }
 
     @Post("/login")
-    public HttpResponse<String> login(HttpRequest<?> request) {
-        String username = request.getHeaders().get("username");
-        String password = request.getHeaders().get("password");
+    public HttpResponse<String> login(@Body LoginRequest loginRequest) {
 
-        if (username == null || password == null) {
+        if (loginRequest.getUsername() == null || loginRequest.getPassword() == null) {
             throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Authentication details missing");
         }
 
         try {
             return loginServiceClient.toBlocking()
-                    .exchange(HttpRequest.POST("/login", "")
-                            .header("username", username)
-                            .header("password", password), String.class);
+                    .exchange(HttpRequest.POST("/login", loginRequest), String.class);
         } catch (HttpClientResponseException e) {
             if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
                 throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
@@ -67,6 +64,7 @@ public class RoutingController {
             throw new HttpStatusException(e.getStatus(), "Error during login");
         }
     }
+
 
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
         HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), path);
