@@ -12,9 +12,13 @@ import io.micronaut.http.client.annotation.Client;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.http.exceptions.HttpStatusException;
 import jakarta.inject.Inject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Controller
 public class RoutingController {
+
+    private static final Logger LOG = LoggerFactory.getLogger(RoutingController.class);
 
     @Inject
     @Client("http://host.docker.internal:8081")  // login-service URL
@@ -26,6 +30,7 @@ public class RoutingController {
 
     @Get("/customer")
     public HttpResponse routeToCustomerService(HttpRequest<?> request) {
+        LOG.info("Customer service call attempt.");
         validateJwt(request);
         return forwardRequest(request, customerServiceClient, "/customer");
     }
@@ -49,6 +54,8 @@ public class RoutingController {
 
     @Post("/login")
     public HttpResponse<String> login(@Body LoginRequest loginRequest) {
+
+        LOG.info("Login service /login call attempt.");
 
         if (loginRequest.getUsername() == null || loginRequest.getPassword() == null) {
             throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Authentication details missing");
