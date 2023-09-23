@@ -3,6 +3,7 @@ package com.routing;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
+import io.micronaut.http.MutableHttpRequest;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
@@ -28,29 +29,9 @@ public class RoutingController {
     @Client("http://host.docker.internal:8083")  // customer-service URL
     private HttpClient customerServiceClient;
 
-    @Get("/customer")
-    public HttpResponse routeToCustomerService(HttpRequest<?> request) {
-        LOG.info("Customer service call attempt.");
-        validateJwt(request);
-        return forwardRequest(request, customerServiceClient, "/customer");
-    }
-
-    private void validateJwt(HttpRequest<?> request) {
-        String jwt = request.getHeaders().getAuthorization().orElse(null);
-        if (jwt == null) {
-            throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "JWT missing");
-        }
-        try {
-            loginServiceClient.toBlocking()
-                    .exchange(HttpRequest.POST("/auth", "")
-                            .header("Authorization", jwt), String.class);
-        } catch (HttpClientResponseException e) {
-            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
-                throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid JWT");
-            }
-            throw new HttpStatusException(e.getStatus(), "Error during JWT validation");
-        }
-    }
+    @Inject
+    @Client("http://host.docker.internal:8084")  // customer-service URL
+    private HttpClient mortgageServiceClient;
 
     @Post("/login")
     public HttpResponse<String> login(@Body LoginRequest loginRequest) {
@@ -72,13 +53,77 @@ public class RoutingController {
         }
     }
 
+    @Get("/customer")
+    public HttpResponse<String> routeToCustomerService(HttpRequest<?> request) {
+        LOG.info("Routing service call attempt.");
+        String customerId = validateJwt(request);
+
+        // Construct a new request with the customerId header
+        MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET("/customer")
+                .header("customerId", customerId);
+        LOG.info("Modified request headers: ");
+        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info(key + ": " + value));
+
+        return forwardRequest(modifiedRequest, customerServiceClient, "/customer");
+    }
+
+    @Get("/mortgages")
+    public HttpResponse<String> routeToMortgageService(HttpRequest<?> request) {
+        LOG.info("Routing service call attempt.");
+        String customerId = validateJwt(request);
+
+        // Construct a new request with the customerId header
+        MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET("/mortgages")
+                .header("customerId", customerId);
+        LOG.info("Modified request headers: ");
+        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info(key + ": " + value));
+
+        return forwardRequest(modifiedRequest, mortgageServiceClient, "/mortgages");
+    }
+
 
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
-        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), path);
+        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), path)
+                .headers(headers -> {
+                    for (String name : originalRequest.getHeaders().names()) {
+                        originalRequest.getHeaders().getAll(name).forEach(value -> headers.add(name, value));
+                    }
+                });
+
         try {
             return client.toBlocking().exchange(request, String.class);
         } catch (HttpClientResponseException e) {
-            throw new HttpStatusException(e.getStatus(), "Request forwarding failed");
+            LOG.error("Error forwarding request to path: " + path + ". Status: " + e.getStatus() + ". Error: " + e.getMessage());
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                throw new HttpStatusException(e.getStatus(), "Unauthorized request when forwarding to " + path);
+            }
+            throw new HttpStatusException(e.getStatus(), "Request forwarding to " + path + " failed: " + e.getMessage());
+        } catch (Exception e) {
+            // Catch other unexpected exceptions
+            LOG.error("Unexpected error while forwarding request to path: " + path, e);
+            throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error during request forwarding");
         }
     }
+
+
+    private String validateJwt(HttpRequest<?> request) {
+        String jwt = request.getHeaders().getAuthorization().orElse(null);
+        if (jwt == null) {
+            throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "JWT missing");
+        }
+        try {
+            HttpResponse<?> authResponse = loginServiceClient.toBlocking()
+                    .exchange(HttpRequest.POST("/auth", "")
+                            .header("Authorization", jwt), String.class);
+            return authResponse.getHeaders().get("customerId");
+        } catch (HttpClientResponseException e) {
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid JWT");
+            }
+            throw new HttpStatusException(e.getStatus(), "Error during JWT validation");
+        }
+
+    }
+
+
 }
