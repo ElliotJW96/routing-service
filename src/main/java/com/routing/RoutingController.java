@@ -4,14 +4,12 @@ import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MutableHttpRequest;
-import io.micronaut.http.annotation.Body;
-import io.micronaut.http.annotation.Controller;
-import io.micronaut.http.annotation.Get;
-import io.micronaut.http.annotation.Post;
+import io.micronaut.http.annotation.*;
 import io.micronaut.http.client.HttpClient;
 import io.micronaut.http.client.annotation.Client;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.http.exceptions.HttpStatusException;
+import io.micronaut.http.uri.UriBuilder;
 import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,8 +28,12 @@ public class RoutingController {
     private HttpClient customerServiceClient;
 
     @Inject
-    @Client("http://host.docker.internal:8084")  // customer-service URL
+    @Client("http://host.docker.internal:8084")  // mortgage-service URL
     private HttpClient mortgageServiceClient;
+
+    @Inject
+    @Client("http://host.docker.internal:8085")  // product-service URL
+    private HttpClient productServiceClient;
 
     @Post("/login")
     public HttpResponse<String> login(@Body LoginRequest loginRequest) {
@@ -55,7 +57,7 @@ public class RoutingController {
 
     @Get("/customer")
     public HttpResponse<String> routeToCustomerService(HttpRequest<?> request) {
-        LOG.info("Routing service call attempt.");
+        LOG.info("Routing service call attempt to customer-service");
         String customerId = validateJwt(request);
 
         // Construct a new request with the customerId header
@@ -69,7 +71,7 @@ public class RoutingController {
 
     @Get("/mortgages")
     public HttpResponse<String> routeToMortgageService(HttpRequest<?> request) {
-        LOG.info("Routing service call attempt.");
+        LOG.info("Routing service call attempt to mortgage-service");
         String customerId = validateJwt(request);
 
         // Construct a new request with the customerId header
@@ -81,9 +83,22 @@ public class RoutingController {
         return forwardRequest(modifiedRequest, mortgageServiceClient, "/mortgages");
     }
 
+    @Get("/product")
+    public HttpResponse<String> routeToProductService(HttpRequest<?> request, @QueryValue String mortgageId){
+        LOG.info("Routing service call attempt to product-service.");
+        validateJwt(request);
+        return forwardRequest(request, productServiceClient, "/product");
+    }
+
 
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
-        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), path)
+// Create the request while preserving the original request's query parameters
+        UriBuilder uriBuilder = UriBuilder.of(path);
+        originalRequest.getParameters().forEach((name, values) -> {
+            values.forEach(value -> uriBuilder.queryParam(name, value));
+        });
+
+        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), uriBuilder.build().toString())
                 .headers(headers -> {
                     for (String name : originalRequest.getHeaders().names()) {
                         originalRequest.getHeaders().getAll(name).forEach(value -> headers.add(name, value));
