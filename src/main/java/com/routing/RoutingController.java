@@ -35,6 +35,10 @@ public class RoutingController {
     @Client("http://host.docker.internal:8085")  // product-service URL
     private HttpClient productServiceClient;
 
+    @Inject
+    @Client("http://host.docker.internal:8086")  // debit-instruction-service URL
+    private HttpClient debitInstructionServiceClient;
+
     @Post("/login")
     public HttpResponse<String> login(@Body LoginRequest loginRequest) {
 
@@ -90,20 +94,52 @@ public class RoutingController {
         return forwardRequest(request, productServiceClient, "/product");
     }
 
+    @Get("/debitinstruction")
+    public HttpResponse<String> routeToDebitInstructionService(HttpRequest<?> request, @QueryValue String mortgageId) {
+        LOG.info("Routing service call attempt to GET debit-instruction-service");
+        String customerId = validateJwt(request);
+
+        UriBuilder uriBuilder = UriBuilder.of("/mortgages")
+                .queryParam("customerId", customerId)
+                .queryParam("mortgageId", mortgageId);
+
+        MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET(uriBuilder.build());
+        LOG.info(modifiedRequest.toString());
+        return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
+    }
+
+    @Put("/debitinstruction")
+    public HttpResponse<?> routeToUpdateDebitInstructionService(HttpRequest<?> request, @QueryValue String mortgageId, @Body DebitInstructionDay body) {
+        LOG.info("Routing service call attempt to PUT debit-instruction-service");
+        String customerId = validateJwt(request);
+
+        UriBuilder uriBuilder = UriBuilder.of("/debitinstruction")
+                .queryParam("customerId", customerId)
+                .queryParam("mortgageId", mortgageId);
+
+        MutableHttpRequest<Object> modifiedRequest = HttpRequest.PUT(uriBuilder.build(), body);
+        LOG.info(modifiedRequest.toString());
+        return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
+    }
+
+
+
+
 
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
-// Create the request while preserving the original request's query parameters
+        // Create the request while preserving the original request's query parameters
         UriBuilder uriBuilder = UriBuilder.of(path);
         originalRequest.getParameters().forEach((name, values) -> {
             values.forEach(value -> uriBuilder.queryParam(name, value));
         });
 
+        //Adding any headers and the method
         HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), uriBuilder.build().toString())
                 .headers(headers -> {
                     for (String name : originalRequest.getHeaders().names()) {
                         originalRequest.getHeaders().getAll(name).forEach(value -> headers.add(name, value));
                     }
-                });
+                }).body(originalRequest.getBody().orElse(null)); //and body
 
         try {
             return client.toBlocking().exchange(request, String.class);
