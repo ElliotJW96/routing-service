@@ -1,5 +1,7 @@
 package com.routing;
 
+import com.routing.models.DebitInstructionDay;
+import com.routing.models.LoginRequest;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.HttpStatus;
@@ -14,6 +16,9 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Controller responsible for routing requests to various services.
+ */
 @Controller
 public class RoutingController {
 
@@ -39,19 +44,28 @@ public class RoutingController {
     @Client("http://host.docker.internal:8086")  // debit-instruction-service URL
     private HttpClient debitInstructionServiceClient;
 
+    /**
+     * Route to login service for authentication.
+     *
+     * @param loginRequest The login credentials.
+     * @return HttpResponse after attempting the login.
+     */
     @Post("/login")
     public HttpResponse<String> login(@Body LoginRequest loginRequest) {
-
-        LOG.info("Login service /login call attempt.");
+        LOG.info("Login service /login call attempt with username: {}", loginRequest.getUsername());
 
         if (loginRequest.getUsername() == null || loginRequest.getPassword() == null) {
+            LOG.warn("Authentication details missing in login request.");
             throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Authentication details missing");
         }
 
         try {
-            return loginServiceClient.toBlocking()
+            HttpResponse<String> response = loginServiceClient.toBlocking()
                     .exchange(HttpRequest.POST("/login", loginRequest), String.class);
+            LOG.info("Login service responded with status: {}", response.getStatus());
+            return response;
         } catch (HttpClientResponseException e) {
+            LOG.error("Error during login with status: {}. Error: {}", e.getStatus(), e.getMessage());
             if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
                 throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
             }
@@ -59,44 +73,70 @@ public class RoutingController {
         }
     }
 
+    /**
+     * Route to customer service with customerId.
+     *
+     * @param request The original request.
+     * @return HttpResponse from the customer service.
+     */
     @Get("/customer")
     public HttpResponse<String> routeToCustomerService(HttpRequest<?> request) {
         LOG.info("Routing service call attempt to customer-service");
         String customerId = validateJwt(request);
 
-        // Construct a new request with the customerId header
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET("/customer")
                 .header("customerId", customerId);
-        LOG.info("Modified request headers: ");
-        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info(key + ": " + value));
+
+        LOG.info("Modified request headers for customer-service: ");
+        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info("{}: {}", key, value));
 
         return forwardRequest(modifiedRequest, customerServiceClient, "/customer");
     }
 
+    /**
+     * Route to mortgage service with customerId.
+     *
+     * @param request The original request.
+     * @return HttpResponse from the mortgage service.
+     */
     @Get("/mortgages")
     public HttpResponse<String> routeToMortgageService(HttpRequest<?> request) {
         LOG.info("Routing service call attempt to mortgage-service");
         String customerId = validateJwt(request);
 
-        // Construct a new request with the customerId header
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET("/mortgages")
                 .header("customerId", customerId);
-        LOG.info("Modified request headers: ");
-        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info(key + ": " + value));
+        LOG.info("Modified request headers for mortgage-service: ");
+        modifiedRequest.getHeaders().forEach((key, value) -> LOG.info("{}: {}", key, value));
 
         return forwardRequest(modifiedRequest, mortgageServiceClient, "/mortgages");
     }
 
+    /**
+     * Route to product service.
+     *
+     * @param request The original request.
+     * @param mortgageId The mortgage ID.
+     * @return HttpResponse from the product service.
+     */
     @Get("/product")
-    public HttpResponse<String> routeToProductService(HttpRequest<?> request, @QueryValue String mortgageId){
-        LOG.info("Routing service call attempt to product-service.");
+    public HttpResponse<String> routeToProductService(HttpRequest<?> request, @QueryValue String mortgageId) {
+        LOG.info("Routing service call attempt to product-service with mortgageId: {}", mortgageId);
         validateJwt(request);
+
         return forwardRequest(request, productServiceClient, "/product");
     }
 
+    /**
+     * Route to debit instruction service with customerId and mortgageId.
+     *
+     * @param request The original request.
+     * @param mortgageId The mortgage ID.
+     * @return HttpResponse from the debit instruction service.
+     */
     @Get("/debitinstruction")
     public HttpResponse<String> routeToDebitInstructionService(HttpRequest<?> request, @QueryValue String mortgageId) {
-        LOG.info("Routing service call attempt to GET debit-instruction-service");
+        LOG.info("Routing service call attempt to GET debit-instruction-service with mortgageId: {}", mortgageId);
         String customerId = validateJwt(request);
 
         UriBuilder uriBuilder = UriBuilder.of("/mortgages")
@@ -104,13 +144,22 @@ public class RoutingController {
                 .queryParam("mortgageId", mortgageId);
 
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET(uriBuilder.build());
-        LOG.info(modifiedRequest.toString());
+        LOG.info("Modified request for debit-instruction-service: {}", modifiedRequest);
+
         return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
     }
 
+    /**
+     * Route to update debit instruction service with customerId and mortgageId.
+     *
+     * @param request The original request.
+     * @param mortgageId The mortgage ID.
+     * @param body The debit instruction day body.
+     * @return HttpResponse from the update debit instruction service.
+     */
     @Put("/debitinstruction")
     public HttpResponse<?> routeToUpdateDebitInstructionService(HttpRequest<?> request, @QueryValue String mortgageId, @Body DebitInstructionDay body) {
-        LOG.info("Routing service call attempt to PUT debit-instruction-service");
+        LOG.info("Routing service call attempt to PUT debit-instruction-service with mortgageId: {}", mortgageId);
         String customerId = validateJwt(request);
 
         UriBuilder uriBuilder = UriBuilder.of("/debitinstruction")
@@ -118,48 +167,60 @@ public class RoutingController {
                 .queryParam("mortgageId", mortgageId);
 
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.PUT(uriBuilder.build(), body);
-        LOG.info(modifiedRequest.toString());
+        LOG.info("Modified PUT request for debit-instruction-service: {}", modifiedRequest);
+
         return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
     }
 
-
-
-
-
+    /**
+     * Forwards a request to a target service and returns the response.
+     *
+     * @param originalRequest The original request.
+     * @param client The HTTP client.
+     * @param path The target path.
+     * @return HttpResponse from the target service.
+     */
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
-        // Create the request while preserving the original request's query parameters
+        LOG.info("Preparing to forward request to path: {}", path);
+
         UriBuilder uriBuilder = UriBuilder.of(path);
         originalRequest.getParameters().forEach((name, values) -> {
             values.forEach(value -> uriBuilder.queryParam(name, value));
         });
 
-        //Adding any headers and the method
         HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), uriBuilder.build().toString())
                 .headers(headers -> {
                     for (String name : originalRequest.getHeaders().names()) {
                         originalRequest.getHeaders().getAll(name).forEach(value -> headers.add(name, value));
                     }
-                }).body(originalRequest.getBody().orElse(null)); //and body
+                }).body(originalRequest.getBody().orElse(null));
 
         try {
-            return client.toBlocking().exchange(request, String.class);
+            HttpResponse<String> response = client.toBlocking().exchange(request, String.class);
+            LOG.info("Request forwarded to path: {} with response status: {}", path, response.getStatus());
+            return response;
         } catch (HttpClientResponseException e) {
-            LOG.error("Error forwarding request to path: " + path + ". Status: " + e.getStatus() + ". Error: " + e.getMessage());
+            LOG.error("Error forwarding request to path: {}. Status: {}. Error: {}", path, e.getStatus(), e.getMessage());
             if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
                 throw new HttpStatusException(e.getStatus(), "Unauthorized request when forwarding to " + path);
             }
             throw new HttpStatusException(e.getStatus(), "Request forwarding to " + path + " failed: " + e.getMessage());
         } catch (Exception e) {
-            // Catch other unexpected exceptions
-            LOG.error("Unexpected error while forwarding request to path: " + path, e);
+            LOG.error("Unexpected error while forwarding request to path: {}", path, e);
             throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error during request forwarding");
         }
     }
 
-
+    /**
+     * Validates the JWT token and returns the associated customerId.
+     *
+     * @param request The original request containing the JWT.
+     * @return customerId associated with the JWT.
+     */
     private String validateJwt(HttpRequest<?> request) {
         String jwt = request.getHeaders().getAuthorization().orElse(null);
         if (jwt == null) {
+            LOG.warn("JWT missing in the request headers.");
             throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "JWT missing");
         }
         try {
@@ -168,13 +229,11 @@ public class RoutingController {
                             .header("Authorization", jwt), String.class);
             return authResponse.getHeaders().get("customerId");
         } catch (HttpClientResponseException e) {
+            LOG.error("Error during JWT validation. Status: {}. Error: {}", e.getStatus(), e.getMessage());
             if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
                 throw new HttpStatusException(HttpStatus.UNAUTHORIZED, "Invalid JWT");
             }
             throw new HttpStatusException(e.getStatus(), "Error during JWT validation");
         }
-
     }
-
-
 }
