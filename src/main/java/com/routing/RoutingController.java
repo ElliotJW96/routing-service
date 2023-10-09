@@ -183,11 +183,13 @@ public class RoutingController {
     private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
         LOG.info("Preparing to forward request to path: {}", path);
 
+        //build the request path including any parameters from the original request
         UriBuilder uriBuilder = UriBuilder.of(path);
         originalRequest.getParameters().forEach((name, values) -> {
             values.forEach(value -> uriBuilder.queryParam(name, value));
         });
 
+        //Create a new HTTP request with the above path, and adding any headers and body from the original request, if present.
         HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), uriBuilder.build().toString())
                 .headers(headers -> {
                     for (String name : originalRequest.getHeaders().names()) {
@@ -196,6 +198,7 @@ public class RoutingController {
                 }).body(originalRequest.getBody().orElse(null));
 
         try {
+            //Make the request to the routed service.
             HttpResponse<String> response = client.toBlocking().exchange(request, String.class);
             LOG.info("Request forwarded to path: {} with response status: {}", path, response.getStatus());
             return response;
