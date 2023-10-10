@@ -16,6 +16,8 @@ import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
+
 /**
  * Controller responsible for routing requests to various services.
  */
@@ -90,7 +92,7 @@ public class RoutingController {
         LOG.info("Modified request headers for customer-service: ");
         modifiedRequest.getHeaders().forEach((key, value) -> LOG.info("{}: {}", key, value));
 
-        return forwardRequest(modifiedRequest, customerServiceClient, "/customer");
+        return forwardRequest(modifiedRequest, customerServiceClient);
     }
 
     /**
@@ -109,7 +111,7 @@ public class RoutingController {
         LOG.info("Modified request headers for mortgage-service: ");
         modifiedRequest.getHeaders().forEach((key, value) -> LOG.info("{}: {}", key, value));
 
-        return forwardRequest(modifiedRequest, mortgageServiceClient, "/mortgages");
+        return forwardRequest(modifiedRequest, mortgageServiceClient);
     }
 
     /**
@@ -124,7 +126,7 @@ public class RoutingController {
         LOG.info("Routing service call attempt to product-service with mortgageId: {}", mortgageId);
         validateJwt(request);
 
-        return forwardRequest(request, productServiceClient, "/product");
+        return forwardRequest(request, productServiceClient);
     }
 
     /**
@@ -139,14 +141,14 @@ public class RoutingController {
         LOG.info("Routing service call attempt to GET debit-instruction-service with mortgageId: {}", mortgageId);
         String customerId = validateJwt(request);
 
-        UriBuilder uriBuilder = UriBuilder.of("/mortgages")
+        UriBuilder uriBuilder = UriBuilder.of("/debitinstruction")
                 .queryParam("customerId", customerId)
                 .queryParam("mortgageId", mortgageId);
 
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.GET(uriBuilder.build());
         LOG.info("Modified request for debit-instruction-service: {}", modifiedRequest);
 
-        return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
+        return forwardRequest(modifiedRequest, debitInstructionServiceClient);
     }
 
     /**
@@ -158,7 +160,9 @@ public class RoutingController {
      * @return HttpResponse from the update debit instruction service.
      */
     @Put("/debitinstruction")
-    public HttpResponse<?> routeToUpdateDebitInstructionService(HttpRequest<?> request, @QueryValue String mortgageId, @Body DebitInstructionDay body) {
+    public HttpResponse<?> routeToUpdateDebitInstructionService(
+            HttpRequest<?> request, @QueryValue String mortgageId, @Body DebitInstructionDay body
+    ) {
         LOG.info("Routing service call attempt to PUT debit-instruction-service with mortgageId: {}", mortgageId);
         String customerId = validateJwt(request);
 
@@ -169,37 +173,33 @@ public class RoutingController {
         MutableHttpRequest<Object> modifiedRequest = HttpRequest.PUT(uriBuilder.build(), body);
         LOG.info("Modified PUT request for debit-instruction-service: {}", modifiedRequest);
 
-        return forwardRequest(modifiedRequest, debitInstructionServiceClient, "/debitinstruction");
+        return forwardRequest(modifiedRequest, debitInstructionServiceClient);
     }
 
     /**
      * Forwards a request to a target service and returns the response.
      *
-     * @param originalRequest The original request.
-     * @param client The HTTP client.
-     * @param path The target path.
+     * @param originalRequest The original request that has been pre-configured with the required details.
+     * @param client The HTTP client for the target service.
      * @return HttpResponse from the target service.
      */
-    private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client, String path) {
-        LOG.info("Preparing to forward request to path: {}", path);
+    private HttpResponse<String> forwardRequest(HttpRequest<?> originalRequest, HttpClient client) {
+        String path = originalRequest.getUri().toString();
+        String method = originalRequest.getMethod().toString();
+        String headers = originalRequest.getHeaders().toString();
 
-        //build the request path including any parameters from the original request
-        UriBuilder uriBuilder = UriBuilder.of(path);
-        originalRequest.getParameters().forEach((name, values) -> {
-            values.forEach(value -> uriBuilder.queryParam(name, value));
-        });
+        Optional<?> bodyOptional = originalRequest.getBody();
+        String bodyString = bodyOptional.map(Object::toString).orElse("No Body");
 
-        //Create a new HTTP request with the above path, and adding any headers and body from the original request, if present.
-        HttpRequest<?> request = HttpRequest.create(originalRequest.getMethod(), uriBuilder.build().toString())
-                .headers(headers -> {
-                    for (String name : originalRequest.getHeaders().names()) {
-                        originalRequest.getHeaders().getAll(name).forEach(value -> headers.add(name, value));
-                    }
-                }).body(originalRequest.getBody().orElse(null));
+        LOG.info("Preparing to forward request:");
+        LOG.info("Method: {}", method);
+        LOG.info("Path: {}", path);
+        LOG.info("Headers: {}", headers);
+        LOG.info("Body: {}", bodyString);
 
         try {
-            //Make the request to the routed service.
-            HttpResponse<String> response = client.toBlocking().exchange(request, String.class);
+            // Forward the original request directly to the routed service.
+            HttpResponse<String> response = client.toBlocking().exchange(originalRequest, String.class);
             LOG.info("Request forwarded to path: {} with response status: {}", path, response.getStatus());
             return response;
         } catch (HttpClientResponseException e) {
@@ -213,6 +213,7 @@ public class RoutingController {
             throw new HttpStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected error during request forwarding");
         }
     }
+
 
     /**
      * Validates the JWT token and returns the associated customerId.
