@@ -204,12 +204,11 @@ public class RoutingController {
                 }
             });
         });
-        LOG.info("\n");
 
         try {
             // Forward the original request directly to the routed service.
             HttpResponse<String> response = client.toBlocking().exchange(request, String.class);
-            LOG.info("Request forwarded to path: {} with response status: {}", path, response.getStatus());
+            LOG.info("Request forwarded to path: {} with response status: {}\n", path, response.getStatus());
             return response;
         } catch (HttpClientResponseException e) {
             LOG.error("Error forwarding request to path: {}. Status: {}. Error: {}", path, e.getStatus(), e.getMessage());
